@@ -4,6 +4,16 @@
 #include <X11/Xlib.h>
 #include <spnav.h>
 
+#include<sys/types.h>
+#include<sys/socket.h>
+#include<netdb.h>
+#include<netinet/in.h>
+#include<inttypes.h>
+#include<arpa/inet.h>
+#include<string.h>
+#include<unistd.h>
+#define PORTNUM 9000
+
 #if defined(BUILD_AF_UNIX)
 void print_dev_info(void);
 #endif
@@ -61,13 +71,60 @@ int main(void)
 	 * and pass any ClientMessage events to spnav_x11_event, which will return the event type or
 	 * zero if it's not an spnav event (see spnav.h).
 	 */
+
+	char buf[256];
+	struct sockaddr_in sin, cli;
+	int sd, ns, clientlen = sizeof(cli);
+	// printf('sdf');
 	while(spnav_wait_event(&sev)) {
-		if(sev.type == SPNAV_EVENT_MOTION) {
-			printf("got motion event: t(%d, %d, %d) ", sev.motion.x, sev.motion.y, sev.motion.z);
-			printf("r(%d, %d, %d)\n", sev.motion.rx, sev.motion.ry, sev.motion.rz);
+		if((sd=socket(AF_INET, SOCK_STREAM, 0)) == -1)
+        {
+            perror("socket");
+            exit(1);
+        }
+        int optvalue = 1;	
+        setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &optvalue, sizeof(optvalue));
+        memset((char *)&sin, '\0', sizeof(sin));
+        sin.sin_family = AF_INET;
+        sin.sin_port = htons(PORTNUM);
+        sin.sin_addr.s_addr = inet_addr("127.0.0.1");
+		// sin.sin_addr.s_addr = inet_addr("172.27.183.141");
+
+        if(bind(sd, (struct sockaddr *)&sin,sizeof(sin)))
+        {
+            perror("bind");
+            exit(1);
+        }
+
+        if(listen(sd,5))
+        {
+            perror("listen");
+            exit(1);
+        }
+
+        if((ns=accept(sd,(struct sockaddr *)&cli, &clientlen))==-1)
+        {
+            perror("accept");
+            exit(1);
+        }
+
+        if(sev.type == SPNAV_EVENT_MOTION) {
+			sprintf(buf, "got motion event: t(%d, %d, %d) r(%d, %d, %d)\n", sev.motion.x, sev.motion.y, sev.motion.z, sev.motion.rx, sev.motion.ry, sev.motion.rz);
 		} else {	/* SPNAV_EVENT_BUTTON */
-			printf("got button %s event b(%d)\n", sev.button.press ? "press" : "release", sev.button.bnum);
+			sprintf(buf, "got button %s event b(%d)\n", sev.button.press ? "press" : "release", sev.button.bnum);
 		}
+        // sprintf(buf, "Your IP address is %s",inet_ntoa(cli.sin_addr));
+                
+        if(send(ns,buf,strlen(buf) +1, 0) == -1)
+        {
+            perror("send");
+            exit(1);
+        }
+
+        close(ns);
+        close(sd);
+        sleep(0.1);
+		
 	}
 
 	spnav_close();
